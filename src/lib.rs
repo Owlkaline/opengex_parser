@@ -92,7 +92,7 @@ pub struct Vertex {
 }
 
 pub struct Index {
-  index: u16,
+  index: u32,
 }
 
 pub struct UV {
@@ -126,7 +126,7 @@ impl Material {
 struct GeometryObject {
   mesh: String,
   vertex: Vec<[f32; 3]>,
-  index: Vec<u16>,
+  index: Vec<u32>,
   normal: Vec<[f32; 3]>,
   uv: Vec<[f32; 2]>,
 }
@@ -513,7 +513,7 @@ impl OpengexPaser {
                   if in_unsigned_int3.1 {
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
-                      if let Ok(unsigned) = value.parse::<u16>() {
+                      if let Ok(unsigned) = value.parse::<u32>() {
                         geometry[(in_geometryobject.2) as usize].geometry_object.index.push(unsigned);
                       }
                     }
@@ -578,7 +578,7 @@ impl OpengexPaser {
     nrml.to_vec()
   }
   
-  pub fn get_index(&self) -> Vec<u16> {
+  pub fn get_index(&self) -> Vec<u32> {
     self.geometry[0].geometry_object.index.to_vec()
   }
   
