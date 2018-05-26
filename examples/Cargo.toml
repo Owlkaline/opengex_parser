@@ -1,0 +1,8 @@
+[package]
+name = "examples"
+version = "0.1.0"
+authors = ["Lilith645 <lilith@inet-sys.com>"]
+publish = false
+
+[dependencies]
+opengex_parser = {path = "../"}

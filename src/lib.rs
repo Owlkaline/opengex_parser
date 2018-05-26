@@ -125,10 +125,10 @@ impl Material {
 
 struct GeometryObject {
   mesh: String,
-  vertex: Vec<Vertex>,
-  index: Vec<Index>,
-  normal: Vec<Normal>,
-  uv: Vec<UV>,
+  vertex: Vec<[f32; 3]>,
+  index: Vec<u16>,
+  normal: Vec<[f32; 3]>,
+  uv: Vec<[f32; 2]>,
 }
 
 impl GeometryObject {
@@ -453,18 +453,18 @@ impl OpengexPaser {
               if in_geometryobject.1 {
                 if in_vertexposition.1 {
                   if in_float3.1 {
-                    let mut vtx: Vertex = Vertex { vertex: [0.0,0.0,0.0] };
+                    let mut vtx: [f32; 3] = [0.0,0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
-                        vtx.vertex[idx] = float;
+                        vtx[idx] = float;
                         idx += 1;
                         if idx == 3 {
                           let temp_vtx = vtx;
                           geometry[(in_geometryobject.2) as usize].geometry_object.vertex.push(temp_vtx);
                           idx = 0;
-                          vtx = Vertex { vertex: [0.0, 0.0, 0.0] };
+                          vtx = [0.0, 0.0, 0.0];
                         }
                       }
                     }
@@ -472,18 +472,18 @@ impl OpengexPaser {
                 }
                 if in_vertexnormal.1 {
                   if in_float3.1 {
-                    let mut nrml: Normal = Normal { normal: [0.0,0.0,0.0] };
+                    let mut nrml: [f32; 3] = [0.0,0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
-                        nrml.normal[idx] = float;
+                        nrml[idx] = float;
                         idx += 1;
                         if idx == 3 {
                           let temp_nrml = nrml;
                           geometry[(in_geometryobject.2) as usize].geometry_object.normal.push(temp_nrml);
                           idx = 0;
-                          nrml = Normal { normal: [0.0, 0.0, 0.0] };
+                          nrml = [0.0, 0.0, 0.0];
                         }
                       }
                     }
@@ -491,19 +491,19 @@ impl OpengexPaser {
                 }
                 if in_texcoord.1 {
                   if in_float2.1 {
-                    let mut uv: UV = UV { uv: [0.0,0.0] };
+                    let mut uv: [f32; 2] = [0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
                         //println!("{}", float);
-                        uv.uv[idx] = float;
+                        uv[idx] = float;
                         idx += 1;
                         if idx == 2 {
                           let temp_uv = uv;
                           geometry[(in_geometryobject.2) as usize].geometry_object.uv.push(temp_uv);
                           idx = 0;
-                          uv = UV { uv: [0.0, 0.0] };
+                          uv = [0.0, 0.0];
                         }
                       }
                     }
@@ -514,7 +514,7 @@ impl OpengexPaser {
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(unsigned) = value.parse::<u16>() {
-                        geometry[(in_geometryobject.2) as usize].geometry_object.index.push(Index { index: unsigned });
+                        geometry[(in_geometryobject.2) as usize].geometry_object.index.push(unsigned);
                       }
                     }
                   }
@@ -537,23 +537,23 @@ impl OpengexPaser {
       );
       
       for j in 0..geometry[i].geometry_object.vertex.len() {
-        let vertex = geometry[i].geometry_object.vertex[j].vertex;
+        let vertex = geometry[i].geometry_object.vertex[j];
         let temp_vtx = Vector4::new(vertex[0], vertex[1], vertex[2], 1.0);
         let temp_vtx = geometry[i].transform*temp_vtx;
         
-        geometry[i].geometry_object.vertex[j].vertex[0] = temp_vtx[0];
-        geometry[i].geometry_object.vertex[j].vertex[1] = temp_vtx[1];
-        geometry[i].geometry_object.vertex[j].vertex[2] = temp_vtx[2];
+        geometry[i].geometry_object.vertex[j][0] = temp_vtx[0];
+        geometry[i].geometry_object.vertex[j][1] = temp_vtx[1];
+        geometry[i].geometry_object.vertex[j][2] = temp_vtx[2];
       }
       
       for j in 0..geometry[i].geometry_object.normal.len() {
-        let normal = geometry[i].geometry_object.normal[j].normal;
+        let normal = geometry[i].geometry_object.normal[j];
         let temp_nrml = Vector4::new(normal[0], normal[1], normal[2], 1.0);
         let temp_nrml = geometry[i].transform*temp_nrml;
         
-        geometry[i].geometry_object.normal[j].normal[0] = temp_nrml[0];
-        geometry[i].geometry_object.normal[j].normal[1] = temp_nrml[1];
-        geometry[i].geometry_object.normal[j].normal[2] = temp_nrml[2];
+        geometry[i].geometry_object.normal[j][0] = temp_nrml[0];
+        geometry[i].geometry_object.normal[j][1] = temp_nrml[1];
+        geometry[i].geometry_object.normal[j][2] = temp_nrml[2];
       }
     }
     
@@ -568,21 +568,21 @@ impl OpengexPaser {
     }
   }
   
-  pub fn get_vertex(&self) -> &Vec<Vertex> {
+  pub fn get_vertex(&self) -> &Vec<[f32; 3]> {
     let vtx = &self.geometry[0].geometry_object.vertex;
     vtx
   }
   
-  pub fn get_normal(&self) -> &Vec<Normal> {
+  pub fn get_normal(&self) -> &Vec<[f32; 3]> {
     let nrml = &self.geometry[0].geometry_object.normal;
     nrml
   }
   
-  pub fn get_index(&self) -> Vec<u16> {
-    self.geometry[0].geometry_object.index.iter().map(|i| i.index as u16).collect::<Vec<u16>>()
+  pub fn get_index(&self) -> &Vec<u16> {
+    &self.geometry[0].geometry_object.index
   }
   
-  pub fn get_uv(&self) -> &Vec<UV> {
+  pub fn get_uv(&self) -> &Vec<[f32; 2]> {
     let uv = &self.geometry[0].geometry_object.uv;
     uv
   }
