@@ -568,23 +568,23 @@ impl OpengexPaser {
     }
   }
   
-  pub fn get_vertex(&self) -> &Vec<[f32; 3]> {
+  pub fn get_vertex(&self) -> Vec<[f32; 3]> {
     let vtx = &self.geometry[0].geometry_object.vertex;
-    vtx
+    vtx.to_vec()
   }
   
-  pub fn get_normal(&self) -> &Vec<[f32; 3]> {
+  pub fn get_normal(&self) -> Vec<[f32; 3]> {
     let nrml = &self.geometry[0].geometry_object.normal;
-    nrml
+    nrml.to_vec()
   }
   
-  pub fn get_index(&self) -> &Vec<u16> {
-    &self.geometry[0].geometry_object.index
+  pub fn get_index(&self) -> Vec<u16> {
+    self.geometry[0].geometry_object.index.to_vec()
   }
   
-  pub fn get_uv(&self) -> &Vec<[f32; 2]> {
+  pub fn get_uv(&self) -> Vec<[f32; 2]> {
     let uv = &self.geometry[0].geometry_object.uv;
-    uv
+    uv.to_vec()
   }
 }
 
