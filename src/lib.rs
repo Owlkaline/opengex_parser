@@ -50,6 +50,8 @@ const MESH: &str = "Mesh";
 const VERTEXARRAY: &str = "VertexArray";
 const INDEXARRAY: &str = "IndexArray";
 
+
+
 fn get_float(v: Vec<&str>) -> Option<f32> {
   let mut result = None;
   
@@ -568,23 +570,45 @@ impl OpengexPaser {
     }
   }
   
-  pub fn get_vertex(&self) -> Vec<[f32; 3]> {
-    let vtx = &self.geometry[0].geometry_object.vertex;
-    vtx.to_vec()
+  pub fn num_nodes(&self) -> usize {
+    self.num_nodes as usize
   }
   
-  pub fn get_normal(&self) -> Vec<[f32; 3]> {
-    let nrml = &self.geometry[0].geometry_object.normal;
-    nrml.to_vec()
+  pub fn get_nodename(&self, i: usize) -> String {
+    let name = &self.geometry[i].name;
+    name.to_string()
   }
   
-  pub fn get_index(&self) -> Vec<u32> {
-    self.geometry[0].geometry_object.index.to_vec()
+  pub fn get_vertex(&self) -> Vec<Vec<[f32; 3]>> {
+    let mut vertex: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.geometry.len());
+    for i in 0..self.geometry.len() {
+      vertex.push(self.geometry[i].geometry_object.vertex.to_vec());
+    }
+    vertex
   }
   
-  pub fn get_uv(&self) -> Vec<[f32; 2]> {
-    let uv = &self.geometry[0].geometry_object.uv;
-    uv.to_vec()
+  pub fn get_normal(&self) -> Vec<Vec<[f32; 3]>> {
+    let mut normal: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.geometry.len());
+    for i in 0..self.geometry.len() {
+      normal.push(self.geometry[i].geometry_object.normal.to_vec());
+    }
+    normal
+  }
+  
+  pub fn get_index(&self) -> Vec<Vec<u32>> {
+    let mut index: Vec<Vec<u32>> = Vec::with_capacity(self.geometry.len());
+    for i in 0..self.geometry.len() {
+      index.push(self.geometry[i].geometry_object.index.to_vec());
+    }
+    index
+  }
+  
+  pub fn get_uv(&self) -> Vec<Vec<[f32; 2]>> {
+    let mut uv: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.geometry.len());
+    for i in 0..self.geometry.len() {
+      uv.push(self.geometry[0].geometry_object.uv.to_vec());
+    }
+    uv
   }
 }
 
