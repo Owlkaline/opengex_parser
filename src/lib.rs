@@ -593,8 +593,6 @@ impl OpengexPaser {
         geometry[i].geometry_object.normal[j][1] = temp_nrml[1];
         geometry[i].geometry_object.normal[j][2] = temp_nrml[2];
       }
-      
-      println!("name: {} ref: {} texture: {}", geometry[i].material.name, geometry[i].material.material_ref, geometry[i].material.texture);
     }
     
     OpengexPaser {
@@ -644,9 +642,17 @@ impl OpengexPaser {
   pub fn get_uv(&self) -> Vec<Vec<[f32; 2]>> {
     let mut uv: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.geometry.len());
     for i in 0..self.geometry.len() {
-      uv.push(self.geometry[0].geometry_object.uv.to_vec());
+      uv.push(self.geometry[i].geometry_object.uv.to_vec());
     }
     uv
+  }
+  
+  pub fn get_texture_names(&self) -> Vec<String> {
+    let mut textures: Vec<String> = Vec::with_capacity(self.geometry.len());
+    for i in 0..self.geometry.len() {
+      textures.push(self.geometry[i].material.texture.clone());
+    }
+    textures
   }
 }
 
