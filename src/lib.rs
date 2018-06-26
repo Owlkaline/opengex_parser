@@ -10,6 +10,7 @@ use cgmath::SquareMatrix;
 
 const Y: &str = "\"y\"";
 
+const PLAINSTRING: &str = "string";
 const STRING: &str = "{string";
 const REF: &str = "{ref";
 const FLOAT: &str = "{float";
@@ -50,7 +51,8 @@ const MESH: &str = "Mesh";
 const VERTEXARRAY: &str = "VertexArray";
 const INDEXARRAY: &str = "IndexArray";
 
-
+const MATERIAL: &str = "Material";
+const TEXTURE: &str = "Texture";
 
 fn get_float(v: Vec<&str>) -> Option<f32> {
   let mut result = None;
@@ -154,7 +156,7 @@ struct GeometryNode {
   geometry_object: GeometryObject,
   
   material_ref: (i32, String),
-  materiel: Material, 
+  material: Material, 
 }
 
 impl GeometryNode {
@@ -170,7 +172,7 @@ impl GeometryNode {
       geometry_object: GeometryObject::new(),
       
       material_ref: (0, "".to_string()),
-      materiel: Material::new(),
+      material: Material::new(),
     }
   }
 }
@@ -208,6 +210,8 @@ impl OpengexPaser {
     let mut in_vertexnormal = (-1, false);
     let mut in_texcoord = (-1, false);
     let mut in_index = (-1, false);
+    let mut in_material = (-1, false, 0);
+    let mut in_texture = (-1, false);
     
     let mut num_brackets_open = 0;
     
@@ -281,6 +285,9 @@ impl OpengexPaser {
               if in_geometrynode.1 {
                 geometry[(num_nodes-1) as usize].name = name.to_string();
               }
+              if in_material.1 {
+                geometry[(in_material.2) as usize].material.name = name.to_string();
+              }
             }
           },
           OBJECT_REF => {
@@ -295,7 +302,7 @@ impl OpengexPaser {
           MATERIAL_REF => {
             if v[1] == INDEX {
               if v[2] == EQUALS {
-                if v[3] == ZERO_BRACKET {
+                if v[3] == ZERO_BRACKET { // replace for multiple model textures where index is greater than 0
                   if v[4] == REF {
                     if in_geometrynode.1 {
                       let materialref = remove_brackets(v[5]);
@@ -369,6 +376,26 @@ impl OpengexPaser {
               in_index = (num_brackets_open, true);
             }
           },
+          MATERIAL => {
+            in_material = (num_brackets_open, true, 0);
+            let materialref = remove_brackets(v[1]);
+            for i in 0..geometry.len() {
+              if geometry[i].material_ref.1 == materialref {
+                in_material.2 = i;
+                geometry[i].material.material_ref = materialref.to_string();
+                break;
+              }
+            }
+          }
+          TEXTURE => {
+            in_texture = (num_brackets_open, true);
+          },
+          PLAINSTRING => {
+            if in_material.1 && in_texture.1 {
+              let texture = remove_brackets(v[1]);
+              geometry[in_material.2 as usize].material.texture = texture.to_string();
+            }
+          }
           OPEN_BRACKET => {
             num_brackets_open += 1;
             //println!("open bracket");
@@ -435,7 +462,16 @@ impl OpengexPaser {
                 in_index = (-1, false);
               }
             }
-            
+            if in_material.1 {
+              if in_material.0 == num_brackets_open {
+                in_material = (-1, false, 0);
+              }
+            }
+            if in_texture.1 {
+              if in_texture.0 == num_brackets_open {
+                in_texcoord = (-1, false);
+              }
+            }
             //println!("close bracket");
           },
           _ => {
@@ -557,6 +593,8 @@ impl OpengexPaser {
         geometry[i].geometry_object.normal[j][1] = temp_nrml[1];
         geometry[i].geometry_object.normal[j][2] = temp_nrml[2];
       }
+      
+      println!("name: {} ref: {} texture: {}", geometry[i].material.name, geometry[i].material.material_ref, geometry[i].material.texture);
     }
     
     OpengexPaser {
