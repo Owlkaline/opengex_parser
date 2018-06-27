@@ -103,6 +103,20 @@ pub struct UV {
   pub uv: [f32; 2],
 }
 
+struct MaterialRef {
+  index: i32,
+  material_ref: String,
+}
+
+impl MaterialRef {
+  pub fn new() -> MaterialRef {
+    MaterialRef {
+      index: 0,
+      material_ref: "".to_string(),
+    }
+  }
+}
+
 struct Material {
   name: String,
   material_ref: String,
@@ -155,8 +169,7 @@ struct GeometryNode {
   object_ref: String,
   geometry_object: GeometryObject,
   
-  material_ref: (i32, String),
-  material: Material, 
+  materialref: Vec<MaterialRef>, 
 }
 
 impl GeometryNode {
@@ -171,8 +184,7 @@ impl GeometryNode {
       object_ref: "".to_string(),
       geometry_object: GeometryObject::new(),
       
-      material_ref: (0, "".to_string()),
-      material: Material::new(),
+      materialref: Vec::new(),
     }
   }
 }
@@ -185,6 +197,7 @@ pub struct OpengexPaser {
   
   num_nodes: i32,
   geometry: Vec<GeometryNode>,
+  materials: Vec<Material>,
 }
 
 impl OpengexPaser {
@@ -196,6 +209,7 @@ impl OpengexPaser {
     
     let mut num_nodes: i32 = 0;
     let mut geometry: Vec<GeometryNode> = Vec::new();
+    let mut materials: Vec<Material> = Vec::new();
     
     let mut in_geometrynode = (-1, false);
     let mut in_transform = (-1, false);
@@ -225,7 +239,6 @@ impl OpengexPaser {
         let line = line.trim_matches('\t');
         let mut v: Vec<&str> = line.split(" ").collect();
         
-        //println!("{:?}", v);
         if v[0].contains(FLOAT2) || v[0].contains(FLOAT3) ||  v[0].contains(UNSIGNED_INT3) {
           v[0] = remove_brackets(v[0]);
         }
@@ -279,14 +292,13 @@ impl OpengexPaser {
             //println!("GeometryNode Found!");
           },
           NAME => {
-            //println!("Name found!");
             if v[1] == STRING {
               let name = remove_brackets(v[2]);
               if in_geometrynode.1 {
                 geometry[(num_nodes-1) as usize].name = name.to_string();
               }
               if in_material.1 {
-                geometry[(in_material.2) as usize].material.name = name.to_string();
+                materials[(in_material.2) as usize].name = name.to_string();
               }
             }
           },
@@ -302,12 +314,17 @@ impl OpengexPaser {
           MATERIAL_REF => {
             if v[1] == INDEX {
               if v[2] == EQUALS {
-                if v[3] == ZERO_BRACKET { // replace for multiple model textures where index is greater than 0
-                  if v[4] == REF {
-                    if in_geometrynode.1 {
-                      let materialref = remove_brackets(v[5]);
-                      geometry[(num_nodes-1) as usize].material_ref = (0, materialref.to_string());
-                    }
+                let index_str = remove_brackets(v[3]);//if v[3] == ZERO_BRACKET { // replace for multiple model textures where index is greater than 0
+                let mut index = 0;
+                if let Ok(int) = index_str.parse::<i32>() {
+                   index = int;
+                }
+                if v[4] == REF {
+                  if in_geometrynode.1 {
+                    let materialref = remove_brackets(v[5]);
+                    geometry[(num_nodes-1) as usize].materialref.push(MaterialRef::new());
+                    geometry[(num_nodes-1) as usize].materialref[index as usize].index = index as i32;
+                    geometry[(num_nodes-1) as usize].materialref[index as usize].material_ref = materialref.to_string();
                   }
                 }
               }
@@ -379,13 +396,10 @@ impl OpengexPaser {
           MATERIAL => {
             in_material = (num_brackets_open, true, 0);
             let materialref = remove_brackets(v[1]);
-            for i in 0..geometry.len() {
-              if geometry[i].material_ref.1 == materialref {
-                in_material.2 = i;
-                geometry[i].material.material_ref = materialref.to_string();
-                break;
-              }
-            }
+            let index = materials.len();
+            materials.push(Material::new());
+            materials[index].material_ref = materialref.to_string();
+            in_material.2 = index;
           }
           TEXTURE => {
             in_texture = (num_brackets_open, true);
@@ -393,7 +407,7 @@ impl OpengexPaser {
           PLAINSTRING => {
             if in_material.1 && in_texture.1 {
               let texture = remove_brackets(v[1]);
-              geometry[in_material.2 as usize].material.texture = texture.to_string();
+              materials[in_material.2 as usize].texture = texture.to_string();
             }
           }
           OPEN_BRACKET => {
@@ -477,13 +491,15 @@ impl OpengexPaser {
           _ => {
             if v[0].len() > 1 && v[0].contains(char::is_numeric) {
               if in_geometrynode.1 {
-                if in_float16.1 {
-                 // println!("numbers");
-                  for i in 0..v.len() {
-                    let value = remove_brackets(v[i]);
-                    if let Ok(float) = value.parse::<f32>() {
-                      geometry[(num_nodes-1) as usize].raw_transform[in_float16.2] = float;
-                      in_float16.2 += 1;
+                if in_transform.1 {
+                  if in_float16.1 {
+                   // println!("numbers");
+                    for i in 0..v.len() {
+                      let value = remove_brackets(v[i]);
+                      if let Ok(float) = value.parse::<f32>() {
+                        geometry[(num_nodes-1) as usize].raw_transform[in_float16.2] = float;
+                        in_float16.2 += 1;
+                      }
                     }
                   }
                 }
@@ -603,6 +619,7 @@ impl OpengexPaser {
       
       num_nodes: num_nodes,
       geometry: geometry,
+      materials: materials,
     }
   }
   
@@ -647,10 +664,10 @@ impl OpengexPaser {
     uv
   }
   
-  pub fn get_texture_names(&self) -> Vec<String> {
+  pub fn get_textures(&self) -> Vec<String> {
     let mut textures: Vec<String> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.geometry.len() {
-      textures.push(self.geometry[i].material.texture.clone());
+    for i in 0..self.materials.len() {
+      textures.push(self.materials[i].texture.clone());
     }
     textures
   }
