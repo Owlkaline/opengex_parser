@@ -19,6 +19,8 @@ const PRIMITIVE: &str = "(primitive";
 const ATTRIB: &str = "(attrib";
 const POSITION: &str = "\"position\")";
 const NORMAL: &str = "\"normal\")";
+const DIFFUSE: &str = "\"diffuse\")";
+const SPECULAR: &str = "\"specular\")";
 const TEXCOORD: &str = "\"texcoord\")";
 
 const FLOAT2: &str = "float[2]";
@@ -34,6 +36,7 @@ const DISTANCE: &str = "\"distance\")";
 const ANGLE: &str = "\"angle\")";
 const TIME: &str = "\"time\")";
 const UP: &str = "\"up\")";
+const FORWARD: &str = "\"forward\")";
 
 const GEOMETRY_NODE: &str = "GeometryNode";
 const GEOMETRY_OBJECT: &str = "GeometryObject";
@@ -87,6 +90,14 @@ fn remove_brackets(v: &str) -> &str {
   v
 }
 
+#[derive(Clone)]
+enum Attrib {
+  Diffuse,
+  Normal,
+  Specular,
+  Unknown,
+}
+
 pub struct Normal {
   pub normal: [f32; 3],
 }
@@ -117,10 +128,33 @@ impl MaterialRef {
   }
 }
 
+#[derive(Clone)]
+struct Texture {
+  texture: String,
+  attrib: Attrib,
+  
+  raw_transform: [f32; 16],
+}
+
+impl Texture {
+  pub fn new() -> Texture {
+    Texture {
+      texture: "".to_string(),
+      attrib: Attrib::Unknown,
+      
+      raw_transform: [1.0, 0.0, 0.0, 0.0, 
+                      0.0, 1.0, 0.0, 0.0, 
+                      0.0, 0.0, 1.0, 0.0, 
+                      0.0, 0.0, 0.0, 1.0],
+    }
+  }
+}
+
+#[derive(Clone)]
 struct Material {
   name: String,
   material_ref: String,
-  texture: String,
+  textures: Vec<Texture>,
   
   diffuse_colour: [f32; 3],
   specular_colour: [f32; 3],
@@ -132,7 +166,7 @@ impl Material {
     Material {
       name: "".to_string(),
       material_ref: "".to_string(),
-      texture: "".to_string(),
+      textures: Vec::new(),
       
       diffuse_colour: [0.0, 0.0, 0.0],
       specular_colour: [0.0, 0.0, 0.0],
@@ -141,7 +175,9 @@ impl Material {
   }
 }
 
+#[derive(Clone)]
 struct GeometryObject {
+  name: String,
   mesh: String,
   vertex: Vec<[f32; 3]>,
   index: Vec<u32>,
@@ -152,6 +188,7 @@ struct GeometryObject {
 impl GeometryObject {
   pub fn new() -> GeometryObject {
     GeometryObject {
+      name: "".to_string(),
       mesh: "".to_string(),
       vertex: Vec::new(),
       index: Vec::new(),
@@ -167,7 +204,6 @@ struct GeometryNode {
   transform: Matrix4<f32>,
   
   object_ref: String,
-  geometry_object: GeometryObject,
   
   materialref: Vec<MaterialRef>, 
 }
@@ -182,50 +218,139 @@ impl GeometryNode {
                       0.0, 0.0, 0.0, 1.0],
       transform: Matrix4::identity(),
       object_ref: "".to_string(),
-      geometry_object: GeometryObject::new(),
       
       materialref: Vec::new(),
     }
   }
 }
 
+struct InBasicNode {
+  num_brackets_open: i32,
+  in_use: bool,
+}
+
+struct InIndexedNode {
+  num_brackets_open: i32,
+  in_use: bool,
+  position: usize,
+}
+
+struct InDoubleIndexedNode {
+  num_brackets_open: i32,
+  in_use: bool,
+  position: usize,
+  second_index: usize,
+}
+
+impl InBasicNode {
+  pub fn new() -> InBasicNode {
+    InBasicNode {
+      num_brackets_open: -1,
+      in_use: false,
+    }
+  }
+}
+
+impl InIndexedNode {
+  pub fn new() -> InIndexedNode {
+    InIndexedNode {
+      num_brackets_open: -1,
+      in_use: false,
+      position: 0,
+    }
+  }
+}
+
+impl InDoubleIndexedNode {
+  pub fn new() -> InDoubleIndexedNode {
+    InDoubleIndexedNode {
+      num_brackets_open: -1,
+      in_use: false,
+      position: 0,
+      second_index: 0,
+    }
+  }
+}
+
+struct Metric {
+  distance: f32,
+  angle: f32,
+  time: f32,
+  up: String,
+  forward: String,
+}
+
+impl Metric {
+  pub fn new() -> Metric {
+    Metric {
+      distance: 1.0,
+      angle: 1.0, 
+      time: 1.0,
+      up: Y.to_string(),
+      forward: "".to_string(),
+    }
+  }
+}
+
+#[derive(Clone)]
+struct IndexArray {
+  index: Vec<u32>,
+}
+
+#[derive(Clone)]
+struct UVArray {
+  uv: Vec<[f32; 2]>
+}
+
+#[derive(Clone)]
+struct NormalArray {
+  normal: Vec<[f32; 3]>,
+}
+
+#[derive(Clone)]
+struct VertexArray {
+  attrib: Attrib,
+  morph_index: u32,
+  vertex: Vec<[f32; 3]>,
+}
+
+#[derive(Clone)]
+struct FinalModel {
+  vertices: VertexArray,
+  indices: IndexArray,
+  normals: NormalArray,
+  uvs: Vec<(UVArray, String)>,
+}
+
 pub struct OpengexPaser {
-  metric_dist: f32,
-  metric_angle: f32,
-  metric_time: f32,
-  metric_up: String,
-  
-  num_nodes: i32,
-  geometry: Vec<GeometryNode>,
-  materials: Vec<Material>,
+  metric: Metric,
+  models: Vec<FinalModel>,
 }
 
 impl OpengexPaser {
   pub fn new(location: String) -> OpengexPaser {
-    let mut metric_dist = 1.0;
-    let mut metric_angle = 1.0;
-    let mut metric_time = 1.0;
-    let mut metric_up: String = Y.to_string();
+    let mut metric = Metric::new();
     
     let mut num_nodes: i32 = 0;
-    let mut geometry: Vec<GeometryNode> = Vec::new();
+    let mut geometry_nodes: Vec<GeometryNode> = Vec::new();
+    let mut geometry_objects: Vec<GeometryObject> = Vec::new();
     let mut materials: Vec<Material> = Vec::new();
     
-    let mut in_geometrynode = (-1, false);
-    let mut in_transform = (-1, false);
-    let mut in_float2 = (-1, false);
-    let mut in_float3 = (-1, false);
-    let mut in_float16 = (-1, false, 0);
-    let mut in_unsigned_int3 = (-1, false);
-    let mut in_values = (-1, false);
+    let mut in_geometrynode = InIndexedNode::new();
+    let mut in_transform = InBasicNode::new();
+    let mut in_float2 = InBasicNode::new();
+    let mut in_float3 = InBasicNode::new();
+    let mut in_float16 = InIndexedNode::new();
+    let mut in_unsigned_int3 = InBasicNode::new();
+    let mut in_values = InBasicNode::new();
     
-    let mut in_geometryobject = (-1, false, 0);
-    let mut in_vertexposition = (-1, false);
-    let mut in_vertexnormal = (-1, false);
-    let mut in_texcoord = (-1, false);
-    let mut in_index = (-1, false);
-    let mut in_material = (-1, false, 0);
-    let mut in_texture = (-1, false);
+    let mut in_geometryobject = InIndexedNode::new();
+    let mut in_vertexposition = InBasicNode::new();
+    let mut in_vertexnormal = InBasicNode::new();
+    let mut in_texcoord = InBasicNode::new();
+    let mut in_index = InBasicNode::new();
+    let mut in_material = InDoubleIndexedNode::new();
+    let mut in_texture = InBasicNode::new();
     
     let mut num_brackets_open = 0;
     
@@ -250,34 +375,37 @@ impl OpengexPaser {
                 DISTANCE => {
                   if v[4] == FLOAT {
                     if let Some(float) = get_float(vec!(v[5])) {
-                      //println!("Metric Distance found!");
-                      metric_dist = float;
+                      metric.distance = float;
                     }
                   }
                 },
                 ANGLE => {
-                  //println!("Metric Angle found!");
                   if v[4] == FLOAT {
                     if let Some(float) = get_float(vec!(v[5])) {
-                      metric_angle = float;
+                      metric.angle= float;
                     }
                   }
                 },
                 TIME => {
-                  //println!("Metric Time found!");
                   if v[4] == FLOAT {
                     if let Some(float) = get_float(vec!(v[5])) {
-                      metric_time = float;
+                      metric.time = float;
                     }
                   }
                 },
                 UP => {
-                  //println!("Metric Up found!");
                    if v[4] == STRING {
                      if let Some(dir) = get_string_value(vec!(v[5])) {
-                       metric_up = dir.to_string();
+                       metric.up = dir.to_string();
                      }
                    }
+                },
+                FORWARD => {
+                  if v[4] == STRING {
+                    if let Some(forward) = get_string_value(vec!(v[5])) {
+                      metric.forward = forward.to_string();
+                    } 
+                  }
                 },
                 _ => {
                   
@@ -286,227 +414,276 @@ impl OpengexPaser {
             }
           },
           GEOMETRY_NODE => {
-            in_geometrynode = (num_brackets_open, true);
+            in_geometrynode.num_brackets_open = num_brackets_open;
+            in_geometrynode.in_use = true;
+            in_geometrynode.position = num_nodes as usize;
+            
             num_nodes += 1;
-            geometry.push(GeometryNode::new(v[1].to_string()));
-            //println!("GeometryNode Found!");
+            
+            geometry_nodes.push(GeometryNode::new(v[1].to_string()));
           },
           NAME => {
             if v[1] == STRING {
               let name = remove_brackets(v[2]);
-              if in_geometrynode.1 {
-                geometry[(num_nodes-1) as usize].name = name.to_string();
+              if in_geometrynode.in_use {
+                geometry_nodes[in_geometrynode.position].name = name.to_string();
               }
-              if in_material.1 {
-                materials[(in_material.2) as usize].name = name.to_string();
+              if in_material.in_use {
+                materials[in_material.position].name = name.to_string();
               }
             }
           },
           OBJECT_REF => {
-            //println!("Object ref found!");
             if v[1] == REF {
               let objectref = remove_brackets(v[2]);
-              if in_geometrynode.1 {
-                geometry[(num_nodes-1) as usize].object_ref = objectref.to_string();
+              if in_geometrynode.in_use {
+                geometry_nodes[in_geometrynode.position].object_ref = objectref.to_string();
               }
             }
           },
           MATERIAL_REF => {
             if v[1] == INDEX {
               if v[2] == EQUALS {
-                let index_str = remove_brackets(v[3]);//if v[3] == ZERO_BRACKET { // replace for multiple model textures where index is greater than 0
+                // material index
+                let index_str = remove_brackets(v[3]);
                 let mut index = 0;
                 if let Ok(int) = index_str.parse::<i32>() {
                    index = int;
                 }
                 if v[4] == REF {
-                  if in_geometrynode.1 {
+                  if in_geometrynode.in_use {
                     let materialref = remove_brackets(v[5]);
-                    geometry[(num_nodes-1) as usize].materialref.push(MaterialRef::new());
-                    geometry[(num_nodes-1) as usize].materialref[index as usize].index = index as i32;
-                    geometry[(num_nodes-1) as usize].materialref[index as usize].material_ref = materialref.to_string();
+                    let material_index = geometry_nodes[in_geometrynode.position].materialref.len();
+                    geometry_nodes[in_geometrynode.position].materialref.push(MaterialRef::new());
+                    geometry_nodes[in_geometrynode.position].materialref[material_index].index = index as i32;
+                    geometry_nodes[in_geometrynode.position].materialref[material_index].material_ref = materialref.to_string();
                   }
                 }
               }
             }
           },
           TRANSFORM => {
-            in_transform = (num_brackets_open, true);
+            in_transform.num_brackets_open = num_brackets_open;
+            in_transform.in_use = true;
           },
           FLOAT2 => {
-            in_float2 = (num_brackets_open, true);
-            //println!("float 2");
+            in_float2.num_brackets_open = num_brackets_open;
+            in_float2.in_use = true;
           },
           FLOAT3 => {
-            in_float3 = (num_brackets_open, true);
+            in_float3.num_brackets_open = num_brackets_open;
+            in_float3.in_use = true;
           },
           FLOAT16 => {
-            in_float16 = (num_brackets_open, true, 0);
+            in_float16.num_brackets_open = num_brackets_open;
+            in_float16.in_use = true;
+            in_float16.position = 0;
           },
           UNSIGNED_INT3 => {
-            in_unsigned_int3 = (num_brackets_open, true);
+            in_unsigned_int3.num_brackets_open = num_brackets_open;
+            in_unsigned_int3.in_use = true;
           },
           GEOMETRY_OBJECT => {
-            //println!("geomtry object found!");
             let name = remove_brackets(v[1]);
-            //println!("{}", name);
-            for i in 0..geometry.len() {
-              if name == geometry[i].object_ref {
-                in_geometryobject = (num_brackets_open, true, i);
-                break;
-              }
-            }
+            
+            in_geometryobject.num_brackets_open = num_brackets_open;
+            in_geometryobject.in_use = true;
+            
+            let index = geometry_objects.len();
+            in_geometryobject.position = index;
+            
+            geometry_objects.push(GeometryObject::new());
+            geometry_objects[index].name = name.to_string();
           },
           MESH => {
-            if in_geometryobject.1 {
+            if in_geometryobject.in_use {
               if v[1] == PRIMITIVE {
                 if v[2] == EQUALS {
                   let mesh_name = remove_brackets(v[3]);
-                  geometry[in_geometryobject.2].geometry_object.mesh = mesh_name.to_string();
+                  geometry_objects[in_geometryobject.position].mesh = mesh_name.to_string();
                 }
               }
             }
           },
           VERTEXARRAY => {
-            if in_geometryobject.1 {
+            if in_geometryobject.in_use {
               if v[1] == ATTRIB {
                 if v[2] == EQUALS {
                   if v[3] == POSITION {
-                    //println!("Vertex array found!");
-                    in_vertexposition = (num_brackets_open, true);
+                    in_vertexposition.num_brackets_open = num_brackets_open;
+                    in_vertexposition.in_use = true;
                   } else
                   if v[3] == NORMAL {
-                    //println!("Normal array found!");
-                    in_vertexnormal = (num_brackets_open, true);
+                    in_vertexnormal.num_brackets_open = num_brackets_open;
+                    in_vertexnormal.in_use = true;
                   } else
                   if v[3] == TEXCOORD {
-                    //println!("Texcoord array found!");
-                    in_texcoord = (num_brackets_open, true);
+                    in_texcoord.num_brackets_open = num_brackets_open;
+                    in_texcoord.in_use = true;
                   }
                 }
               }
             }
           },
           INDEXARRAY => {
-            if in_geometryobject.1 {
-              //println!("Index array found!");
-              in_index = (num_brackets_open, true);
+            if in_geometryobject.in_use {
+              in_index.num_brackets_open = num_brackets_open;
+              in_index.in_use = true;
             }
           },
           MATERIAL => {
-            in_material = (num_brackets_open, true, 0);
+            in_material.num_brackets_open = num_brackets_open;
+            in_material.in_use = true;
+            in_material.second_index = 0;
             let materialref = remove_brackets(v[1]);
             let index = materials.len();
+            
             materials.push(Material::new());
             materials[index].material_ref = materialref.to_string();
-            in_material.2 = index;
+            
+            in_material.position = index;
           }
           TEXTURE => {
-            in_texture = (num_brackets_open, true);
+            if in_material.in_use {
+              if v[1]  == ATTRIB {
+                if v[2] == EQUALS {
+                  in_texture.num_brackets_open = num_brackets_open;
+                  in_texture.in_use = true;
+                  
+                  in_material.second_index = materials[in_material.position].textures.len();
+                  
+                  materials[in_material.position].textures.push(Texture::new());
+                  if v[3] == DIFFUSE {
+                    materials[in_material.position].textures[in_material.second_index].attrib = Attrib::Diffuse;
+                  }
+                  if v[3] == SPECULAR {
+                    materials[in_material.position].textures[in_material.second_index].attrib = Attrib::Specular;
+                  }
+                  if v[3] == NORMAL {
+                    materials[in_material.position].textures[in_material.second_index].attrib = Attrib::Normal;
+                  }
+                }
+              }
+            }
           },
           PLAINSTRING => {
-            if in_material.1 && in_texture.1 {
+            if in_material.in_use && in_texture.in_use {
               let texture = remove_brackets(v[1]);
-              materials[in_material.2 as usize].texture = texture.to_string();
+              materials[in_material.position].textures[in_material.second_index].texture = texture.to_string();
             }
           }
           OPEN_BRACKET => {
             num_brackets_open += 1;
-            //println!("open bracket");
           },
           CLOSE_BRACKET => {
             num_brackets_open -= 1;
-            if in_geometrynode.1 {
-              if in_geometrynode.0 == num_brackets_open {
-                in_geometrynode = (-1, false);
+            if in_geometrynode.in_use {
+              if in_geometrynode.num_brackets_open == num_brackets_open {
+                in_geometrynode.num_brackets_open = -1;
+                in_geometrynode.in_use = false;
               }
             }
-            if in_transform.1 {
-              if in_transform.0 == num_brackets_open {
-                in_transform = (-1, false);
+            if in_transform.in_use {
+              if in_transform.num_brackets_open == num_brackets_open {
+                in_transform.num_brackets_open = -1;
+                in_transform.in_use = false;
               }
             }
-            if in_float2.1 {
-              if in_float2.0 == num_brackets_open {
-                in_float2 = (-1, false);
+            if in_float2.in_use {
+              if in_float2.num_brackets_open == num_brackets_open {
+                in_float2.num_brackets_open = -1;
+                in_float2.in_use = false;
               }
             }
-            if in_float3.1 {
-              if in_float3.0 == num_brackets_open {
-                in_float3 = (-1, false);
+            if in_float3.in_use {
+              if in_float3.num_brackets_open == num_brackets_open {
+                in_float3.num_brackets_open = -1;
+                in_float3.in_use = false;
               }
             }
-            if in_float16.1 {
-              if in_float16.0 == num_brackets_open {
-                in_float16 = (-1, false, 0);
+            if in_float16.in_use {
+              if in_float16.num_brackets_open == num_brackets_open {
+                in_float16.num_brackets_open = -1;
+                in_float16.in_use = false;
+                in_float16.position = 0;
               }
             }
-            if in_unsigned_int3.1 {
-              if in_unsigned_int3.0 == num_brackets_open {
-                in_unsigned_int3 = (-1, false);
+            if in_unsigned_int3.in_use {
+              if in_unsigned_int3.num_brackets_open == num_brackets_open {
+                in_unsigned_int3.num_brackets_open = -1;
+                in_unsigned_int3.in_use = false;
               }
             }
-            if in_values.1 {
-              if in_values.0 == num_brackets_open {
-                in_values = (-1, false);
+            if in_values.in_use {
+              if in_values.num_brackets_open == num_brackets_open {
+                in_values.num_brackets_open = -1;
+                in_values.in_use = false;
               }
             }
-            if in_geometryobject.1 {
-              if in_geometryobject.0 == num_brackets_open {
-                in_geometryobject = (-1, false, 0);
+            if in_geometryobject.in_use {
+              if in_geometryobject.num_brackets_open == num_brackets_open {
+                in_geometryobject.num_brackets_open = -1;
+                in_geometryobject.in_use = false;
+                in_geometryobject.position = 0;
               }
             }
-            if in_vertexposition.1 {
-              if in_vertexposition.0 == num_brackets_open {
-                in_vertexposition = (-1, false);
+            if in_vertexposition.in_use {
+              if in_vertexposition.num_brackets_open == num_brackets_open {
+                in_vertexposition.num_brackets_open = -1;
+                in_vertexposition.in_use = false;
               }
             }
-            if in_vertexnormal.1 {
-              if in_vertexnormal.0 == num_brackets_open {
-                in_vertexnormal = (-1, false);
+            if in_vertexnormal.in_use {
+              if in_vertexnormal.num_brackets_open == num_brackets_open {
+                in_vertexnormal.num_brackets_open = -1;
+                in_vertexnormal.in_use = false;
               }
             }
-            if in_texcoord.1 {
-              if in_texcoord.0 == num_brackets_open {
-                in_texcoord = (-1, false);
+            if in_texcoord.in_use {
+              if in_texcoord.num_brackets_open == num_brackets_open {
+                in_texcoord.num_brackets_open = -1;
+                in_texcoord.in_use = false;
               }
             }
-            if in_index.1 {
-              if in_index.0 == num_brackets_open {
-                in_index = (-1, false);
+            if in_index.in_use {
+              if in_index.num_brackets_open == num_brackets_open {
+                in_index.num_brackets_open = -1;
+                in_index.in_use = false;
               }
             }
-            if in_material.1 {
-              if in_material.0 == num_brackets_open {
-                in_material = (-1, false, 0);
+            if in_material.in_use {
+              if in_material.num_brackets_open == num_brackets_open {
+                in_material.num_brackets_open = -1;
+                in_material.in_use = false;
+                in_material.position = 0;
+                in_material.second_index = 0;
               }
             }
-            if in_texture.1 {
-              if in_texture.0 == num_brackets_open {
-                in_texcoord = (-1, false);
+            if in_texture.in_use {
+              if in_texture.num_brackets_open == num_brackets_open {
+                in_texcoord.num_brackets_open = -1;
+                in_texcoord.in_use = false;
               }
             }
-            //println!("close bracket");
           },
           _ => {
             if v[0].len() > 1 && v[0].contains(char::is_numeric) {
-              if in_geometrynode.1 {
-                if in_transform.1 {
-                  if in_float16.1 {
-                   // println!("numbers");
+              if in_geometrynode.in_use {
+                if in_transform.in_use {
+                  if in_float16.in_use {
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
-                        geometry[(num_nodes-1) as usize].raw_transform[in_float16.2] = float;
-                        in_float16.2 += 1;
+                        geometry_nodes[in_geometrynode.position].raw_transform[in_float16.position] = float;
+                        in_float16.position += 1;
                       }
                     }
                   }
                 }
               }
-              if in_geometryobject.1 {
-                if in_vertexposition.1 {
-                  if in_float3.1 {
+              if in_geometryobject.in_use {
+                if in_vertexposition.in_use {
+                  if in_float3.in_use {
                     let mut vtx: [f32; 3] = [0.0,0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
@@ -516,7 +693,7 @@ impl OpengexPaser {
                         idx += 1;
                         if idx == 3 {
                           let temp_vtx = vtx;
-                          geometry[(in_geometryobject.2) as usize].geometry_object.vertex.push(temp_vtx);
+                          geometry_objects[in_geometryobject.position].vertex.push(temp_vtx);
                           idx = 0;
                           vtx = [0.0, 0.0, 0.0];
                         }
@@ -524,8 +701,8 @@ impl OpengexPaser {
                     }
                   }
                 }
-                if in_vertexnormal.1 {
-                  if in_float3.1 {
+                if in_vertexnormal.in_use {
+                  if in_float3.in_use {
                     let mut nrml: [f32; 3] = [0.0,0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
@@ -535,7 +712,7 @@ impl OpengexPaser {
                         idx += 1;
                         if idx == 3 {
                           let temp_nrml = nrml;
-                          geometry[(in_geometryobject.2) as usize].geometry_object.normal.push(temp_nrml);
+                          geometry_objects[in_geometryobject.position].normal.push(temp_nrml);
                           idx = 0;
                           nrml = [0.0, 0.0, 0.0];
                         }
@@ -543,19 +720,18 @@ impl OpengexPaser {
                     }
                   }
                 }
-                if in_texcoord.1 {
-                  if in_float2.1 {
+                if in_texcoord.in_use {
+                  if in_float2.in_use {
                     let mut uv: [f32; 2] = [0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
-                        //println!("{}", float);
                         uv[idx] = float;
                         idx += 1;
                         if idx == 2 {
                           let temp_uv = uv;
-                          geometry[(in_geometryobject.2) as usize].geometry_object.uv.push(temp_uv);
+                          geometry_objects[in_geometryobject.position].uv.push(temp_uv);
                           idx = 0;
                           uv = [0.0, 0.0];
                         }
@@ -563,12 +739,27 @@ impl OpengexPaser {
                     }
                   }
                 }
-                if in_index.1 {
-                  if in_unsigned_int3.1 {
+                if in_index.in_use {
+                  if in_unsigned_int3.in_use {
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(unsigned) = value.parse::<u32>() {
-                        geometry[(in_geometryobject.2) as usize].geometry_object.index.push(unsigned);
+                        geometry_objects[in_geometryobject.position].index.push(unsigned);
+                      }
+                    }
+                  }
+                }
+                if in_texture.in_use {
+                  if in_transform.in_use {
+                    if in_float16.in_use {
+                      let mut vtx: [f32; 3] = [0.0,0.0,0.0];
+                      let mut idx = 0;
+                      for i in 0..v.len() {
+                        let value = remove_brackets(v[i]);
+                        if let Ok(float) = value.parse::<f32>() {
+                          materials[in_material.position].textures[in_material.second_index].raw_transform[in_float16.position] = float;
+                          in_float16.position += 1;
+                        }
                       }
                     }
                   }
@@ -581,94 +772,162 @@ impl OpengexPaser {
     } else {
       println!("Error: Model file at location {:?} does not exist!", location);
     }
-    
-    for i in 0..geometry.len() {
-      geometry[i].transform = Matrix4::new(
-        geometry[i].raw_transform[0], geometry[i].raw_transform[1], geometry[i].raw_transform[2], geometry[i].raw_transform[3], 
-        geometry[i].raw_transform[4], geometry[i].raw_transform[5], geometry[i].raw_transform[6], geometry[i].raw_transform[7], 
-        geometry[i].raw_transform[8], geometry[i].raw_transform[9], geometry[i].raw_transform[10], geometry[i].raw_transform[11], 
-        geometry[i].raw_transform[12], geometry[i].raw_transform[13], geometry[i].raw_transform[14], geometry[i].raw_transform[15], 
+    /*
+    for i in 0..geometry_nodes.len() {
+      geometry_nodes[i].transform = Matrix4::new(
+        geometry_nodes[i].raw_transform[0], geometry_nodes[i].raw_transform[1], geometry_nodes[i].raw_transform[2], geometry_nodes[i].raw_transform[3], 
+        geometry_nodes[i].raw_transform[4], geometry_nodes[i].raw_transform[5], geometry_nodes[i].raw_transform[6], geometry_nodes[i].raw_transform[7], 
+        geometry_nodes[i].raw_transform[8], geometry_nodes[i].raw_transform[9], geometry_nodes[i].raw_transform[10], geometry_nodes[i].raw_transform[11], 
+        geometry_nodes[i].raw_transform[12], geometry_nodes[i].raw_transform[13], geometry_nodes[i].raw_transform[14], geometry_nodes[i].raw_transform[15], 
       );
       
-      for j in 0..geometry[i].geometry_object.vertex.len() {
-        let vertex = geometry[i].geometry_object.vertex[j];
+      for j in 0..geometry_nodes[i].geometry_object.vertex.len() {
+        let vertex = geometry_nodes[i].geometry_object.vertex[j];
         let temp_vtx = Vector4::new(vertex[0], vertex[1], vertex[2], 1.0);
-        let temp_vtx = geometry[i].transform*temp_vtx;
+        let temp_vtx = geometry_nodes[i].transform*temp_vtx;
         
-        geometry[i].geometry_object.vertex[j][0] = temp_vtx[0];
-        geometry[i].geometry_object.vertex[j][1] = temp_vtx[1];
-        geometry[i].geometry_object.vertex[j][2] = temp_vtx[2];
+        geometry_nodes[i].geometry_object.vertex[j][0] = temp_vtx[0];
+        geometry_nodes[i].geometry_object.vertex[j][1] = temp_vtx[1];
+        geometry_nodes[i].geometry_object.vertex[j][2] = temp_vtx[2];
       }
       
-      for j in 0..geometry[i].geometry_object.normal.len() {
-        let normal = geometry[i].geometry_object.normal[j];
+      for j in 0..geometry_nodes[i].geometry_object.normal.len() {
+        let normal = geometry_nodes[i].geometry_object.normal[j];
         let temp_nrml = Vector4::new(normal[0], normal[1], normal[2], 1.0);
-        let temp_nrml = geometry[i].transform*temp_nrml;
+        let temp_nrml = geometry_nodes[i].transform*temp_nrml;
         
-        geometry[i].geometry_object.normal[j][0] = temp_nrml[0];
-        geometry[i].geometry_object.normal[j][1] = temp_nrml[1];
-        geometry[i].geometry_object.normal[j][2] = temp_nrml[2];
+        geometry_nodes[i].geometry_object.normal[j][0] = temp_nrml[0];
+        geometry_nodes[i].geometry_object.normal[j][1] = temp_nrml[1];
+        geometry_nodes[i].geometry_object.normal[j][2] = temp_nrml[2];
+      }
+    }*/
+    
+    let mut models: Vec<FinalModel> = Vec::with_capacity(geometry_objects.len());
+    
+    let mut model_index = 0;
+    
+    for i in 0..geometry_nodes.len() {
+      let transform = Matrix4::new(
+        geometry_nodes[i].raw_transform[0], geometry_nodes[i].raw_transform[1], geometry_nodes[i].raw_transform[2], geometry_nodes[i].raw_transform[3], 
+        geometry_nodes[i].raw_transform[4], geometry_nodes[i].raw_transform[5], geometry_nodes[i].raw_transform[6], geometry_nodes[i].raw_transform[7], 
+        geometry_nodes[i].raw_transform[8], geometry_nodes[i].raw_transform[9], geometry_nodes[i].raw_transform[10], geometry_nodes[i].raw_transform[11], 
+        geometry_nodes[i].raw_transform[12], geometry_nodes[i].raw_transform[13], geometry_nodes[i].raw_transform[14], geometry_nodes[i].raw_transform[15], 
+      );
+      
+      for j in 0..geometry_objects.len() {
+        if geometry_nodes[i].object_ref == geometry_objects[j].name {
+          models.push(FinalModel { 
+            vertices: VertexArray { vertex: Vec::new(), attrib: Attrib::Unknown, morph_index: 0 }, 
+            indices: IndexArray { index: Vec::new() }, 
+            normals: NormalArray { normal: Vec::new() }, 
+            uvs: Vec::new(), //UVArray { uv: Vec::new() }, 
+          });
+          
+          let object = geometry_objects[j].clone();
+          let vertex = object.vertex;
+          let index = object.index;
+          let normal = object.normal;
+          
+          let mut transformed_vertex: Vec<[f32; 3]> = Vec::with_capacity(vertex.len());
+          for k in 0..vertex.len() {
+            let temp_vtx = Vector4::new(vertex[k][0], vertex[k][1], vertex[k][2], 1.0);
+            let new_vtx = transform*temp_vtx;
+            transformed_vertex.push([new_vtx.x, new_vtx.y, new_vtx.z]);
+          }
+          
+          let mut transformed_normal: Vec<[f32; 3]> = Vec::with_capacity(normal.len());
+          for k in 0..normal.len() {
+            let temp_nrml = Vector4::new(normal[k][0], normal[k][1], normal[k][2], 1.0);
+            let new_nrml = transform*temp_nrml;
+            transformed_normal.push([new_nrml.x, new_nrml.y, new_nrml.z]);
+          }
+          
+          models[model_index].vertices = VertexArray { vertex: transformed_vertex, attrib: Attrib::Unknown, morph_index: 0 };
+          models[model_index].indices = IndexArray { index: index };
+          models[model_index].normals = NormalArray { normal: transformed_normal };
+          
+          // to be updated
+          for k in 0..geometry_nodes[i].materialref.len() {
+            for l in 0..materials.len() {
+              if geometry_nodes[i].materialref[k].material_ref == materials[l].material_ref {
+                // to be updated
+                let object = geometry_objects[j].clone();
+                let texture = {
+                   if materials[l].textures.len() > 0 {
+                     materials[l].textures[0].clone().texture
+                   } else {
+                     "".to_string()
+                   }
+                };
+                
+                models[model_index].uvs.push((UVArray { uv: object.uv }, texture));
+                break;
+              }
+            }
+          }
+          
+          model_index+=1;
+          break;
+        }
       }
     }
     
     OpengexPaser {
-      metric_dist: metric_dist,
-      metric_angle: metric_angle,
-      metric_time: metric_time,
-      metric_up: metric_up.to_string(),
-      
-      num_nodes: num_nodes,
-      geometry: geometry,
-      materials: materials,
+      metric: metric,
+      models: models,
     }
-  }
-  
-  pub fn num_nodes(&self) -> usize {
-    self.num_nodes as usize
-  }
-  
-  pub fn get_nodename(&self, i: usize) -> String {
-    let name = &self.geometry[i].name;
-    name.to_string()
   }
   
   pub fn get_vertex(&self) -> Vec<Vec<[f32; 3]>> {
-    let mut vertex: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.geometry.len() {
-      vertex.push(self.geometry[i].geometry_object.vertex.to_vec());
+    let mut vertex: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.models.len());
+    
+    for i in 0..self.models.len() {
+      let model = self.models[i].clone();
+      vertex.push(model.vertices.vertex);
     }
+    
     vertex
   }
   
   pub fn get_normal(&self) -> Vec<Vec<[f32; 3]>> {
-    let mut normal: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.geometry.len() {
-      normal.push(self.geometry[i].geometry_object.normal.to_vec());
+    let mut normal: Vec<Vec<[f32; 3]>> = Vec::with_capacity(self.models.len());
+    
+    for i in 0..self.models.len() {
+      let model = self.models[i].clone();
+      normal.push(model.normals.normal);
     }
     normal
   }
   
   pub fn get_index(&self) -> Vec<Vec<u32>> {
-    let mut index: Vec<Vec<u32>> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.geometry.len() {
-      index.push(self.geometry[i].geometry_object.index.to_vec());
+    let mut index: Vec<Vec<u32>> = Vec::with_capacity(self.models.len());
+    for i in 0..self.models.len() {
+      let model = self.models[i].clone();
+      index.push(model.indices.index);
     }
     index
   }
   
   pub fn get_uv(&self) -> Vec<Vec<[f32; 2]>> {
-    let mut uv: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.geometry.len() {
-      uv.push(self.geometry[i].geometry_object.uv.to_vec());
+    let mut uv: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.models.len());
+    for i in 0..self.models.len() {
+      if self.models[i].uvs.len() > 0 {
+        let uvs = self.models[i].uvs[0].clone();
+        uv.push(uvs.0.uv);
+      }
     }
     uv
   }
   
   pub fn get_textures(&self) -> Vec<String> {
-    let mut textures: Vec<String> = Vec::with_capacity(self.geometry.len());
-    for i in 0..self.materials.len() {
-      textures.push(self.materials[i].texture.clone());
+    let mut textures: Vec<String> = Vec::with_capacity(self.models.len());
+    
+    for i in 0..self.models.len() {
+      for j in 0..self.models[i].uvs.len() {
+        textures.push(self.models[i].uvs[j].1.clone());
+      }
     }
+    
     textures
   }
 }
