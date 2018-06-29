@@ -8,7 +8,7 @@ fn main() {
   let vertices = model.get_vertex();
   let normals = model.get_normal();
   let indices = model.get_index();
-  let uvs = model.get_uv();
+  let texcoords = model.get_texcoords();
   
   
   

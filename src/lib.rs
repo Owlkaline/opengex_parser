@@ -91,7 +91,7 @@ fn remove_brackets(v: &str) -> &str {
 }
 
 #[derive(Clone)]
-enum Attrib {
+pub enum Attrib {
   Diffuse,
   Normal,
   Specular,
@@ -182,7 +182,7 @@ struct GeometryObject {
   vertex: Vec<[f32; 3]>,
   index: Vec<u32>,
   normal: Vec<[f32; 3]>,
-  uv: Vec<[f32; 2]>,
+  texcoord: Vec<[f32; 2]>,
 }
 
 impl GeometryObject {
@@ -193,7 +193,7 @@ impl GeometryObject {
       vertex: Vec::new(),
       index: Vec::new(),
       normal: Vec::new(),
-      uv: Vec::new(),
+      texcoord: Vec::new(),
     }
   }
 }
@@ -298,8 +298,8 @@ struct IndexArray {
 }
 
 #[derive(Clone)]
-struct UVArray {
-  uv: Vec<[f32; 2]>
+struct TexCoordArray {
+  texcoord: Vec<[f32; 2]>
 }
 
 #[derive(Clone)]
@@ -319,12 +319,14 @@ struct FinalModel {
   vertices: VertexArray,
   indices: IndexArray,
   normals: NormalArray,
-  uvs: Vec<(UVArray, String)>,
+  texcoords: TexCoordArray,
+  material_ref: String,
 }
 
 pub struct OpengexPaser {
   metric: Metric,
   models: Vec<FinalModel>,
+  materials: Vec<Material>,
 }
 
 impl OpengexPaser {
@@ -450,13 +452,16 @@ impl OpengexPaser {
                 if let Ok(int) = index_str.parse::<i32>() {
                    index = int;
                 }
-                if v[4] == REF {
-                  if in_geometrynode.in_use {
-                    let materialref = remove_brackets(v[5]);
-                    let material_index = geometry_nodes[in_geometrynode.position].materialref.len();
-                    geometry_nodes[in_geometrynode.position].materialref.push(MaterialRef::new());
-                    geometry_nodes[in_geometrynode.position].materialref[material_index].index = index as i32;
-                    geometry_nodes[in_geometrynode.position].materialref[material_index].material_ref = materialref.to_string();
+                
+                if index == 0 { // Material with index = 0 is default
+                  if v[4] == REF {
+                    if in_geometrynode.in_use {
+                      let materialref = remove_brackets(v[5]);
+                      let material_index = geometry_nodes[in_geometrynode.position].materialref.len();
+                      geometry_nodes[in_geometrynode.position].materialref.push(MaterialRef::new());
+                      geometry_nodes[in_geometrynode.position].materialref[material_index].index = index as i32;
+                      geometry_nodes[in_geometrynode.position].materialref[material_index].material_ref = materialref.to_string();
+                    }
                   }
                 }
               }
@@ -554,6 +559,7 @@ impl OpengexPaser {
                   
                   materials[in_material.position].textures.push(Texture::new());
                   if v[3] == DIFFUSE {
+                    print!("Diffuse: ");
                     materials[in_material.position].textures[in_material.second_index].attrib = Attrib::Diffuse;
                   }
                   if v[3] == SPECULAR {
@@ -569,6 +575,7 @@ impl OpengexPaser {
           PLAINSTRING => {
             if in_material.in_use && in_texture.in_use {
               let texture = remove_brackets(v[1]);
+              println!("{}", texture);
               materials[in_material.position].textures[in_material.second_index].texture = texture.to_string();
             }
           }
@@ -722,18 +729,18 @@ impl OpengexPaser {
                 }
                 if in_texcoord.in_use {
                   if in_float2.in_use {
-                    let mut uv: [f32; 2] = [0.0,0.0];
+                    let mut texcoord: [f32; 2] = [0.0,0.0];
                     let mut idx = 0;
                     for i in 0..v.len() {
                       let value = remove_brackets(v[i]);
                       if let Ok(float) = value.parse::<f32>() {
-                        uv[idx] = float;
+                        texcoord[idx] = float;
                         idx += 1;
                         if idx == 2 {
-                          let temp_uv = uv;
-                          geometry_objects[in_geometryobject.position].uv.push(temp_uv);
+                          let temp_texcoord = texcoord;
+                          geometry_objects[in_geometryobject.position].texcoord.push(temp_texcoord);
                           idx = 0;
-                          uv = [0.0, 0.0];
+                          texcoord = [0.0, 0.0];
                         }
                       }
                     }
@@ -820,7 +827,8 @@ impl OpengexPaser {
             vertices: VertexArray { vertex: Vec::new(), attrib: Attrib::Unknown, morph_index: 0 }, 
             indices: IndexArray { index: Vec::new() }, 
             normals: NormalArray { normal: Vec::new() }, 
-            uvs: Vec::new(), //UVArray { uv: Vec::new() }, 
+            texcoords: TexCoordArray { texcoord: Vec::new() }, //UVArray { uv: Vec::new() },
+            material_ref: "".to_string(),
           });
           
           let object = geometry_objects[j].clone();
@@ -842,30 +850,18 @@ impl OpengexPaser {
             transformed_normal.push([new_nrml.x, new_nrml.y, new_nrml.z]);
           }
           
+          let tex_coord = geometry_objects[j].texcoord.clone();
+          
           models[model_index].vertices = VertexArray { vertex: transformed_vertex, attrib: Attrib::Unknown, morph_index: 0 };
           models[model_index].indices = IndexArray { index: index };
           models[model_index].normals = NormalArray { normal: transformed_normal };
-          
-          // to be updated
+          models[model_index].texcoords = TexCoordArray { texcoord: tex_coord };
           for k in 0..geometry_nodes[i].materialref.len() {
-            for l in 0..materials.len() {
-              if geometry_nodes[i].materialref[k].material_ref == materials[l].material_ref {
-                // to be updated
-                let object = geometry_objects[j].clone();
-                let texture = {
-                   if materials[l].textures.len() > 0 {
-                     materials[l].textures[0].clone().texture
-                   } else {
-                     "".to_string()
-                   }
-                };
-                
-                models[model_index].uvs.push((UVArray { uv: object.uv }, texture));
-                break;
-              }
+            if geometry_nodes[i].materialref[k].index == 0 {
+              models[model_index].material_ref = geometry_nodes[i].materialref[k].material_ref.clone();
+              break;
             }
           }
-          
           model_index+=1;
           break;
         }
@@ -875,6 +871,7 @@ impl OpengexPaser {
     OpengexPaser {
       metric: metric,
       models: models,
+      materials: materials,
     }
   }
   
@@ -908,27 +905,53 @@ impl OpengexPaser {
     index
   }
   
-  pub fn get_uv(&self) -> Vec<Vec<[f32; 2]>> {
-    let mut uv: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.models.len());
+  
+  pub fn get_texcoords(&self) -> Vec<Vec<[f32; 2]>> {
+    let mut texcoords: Vec<Vec<[f32; 2]>> = Vec::with_capacity(self.models.len());
     for i in 0..self.models.len() {
-      if self.models[i].uvs.len() > 0 {
-        let uvs = self.models[i].uvs[0].clone();
-        uv.push(uvs.0.uv);
+      if self.models[i].texcoords.texcoord.len() > 0 {
+        let texcoord = self.models[i].texcoords.texcoord.clone();
+        texcoords.push(texcoord);
       }
     }
-    uv
+    texcoords
   }
   
-  pub fn get_textures(&self) -> Vec<String> {
-    let mut textures: Vec<String> = Vec::with_capacity(self.models.len());
+  pub fn get_diffuse_textures(&self) -> Vec<String> {
+    let mut textures: Vec<String> = Vec::new();
     
-    for i in 0..self.models.len() {
-      for j in 0..self.models[i].uvs.len() {
-        textures.push(self.models[i].uvs[j].1.clone());
+    for i in 0..self.materials.len() {
+      textures.push("".to_string());
+      for j in 0..self.materials[i].textures.len() {
+        match self.materials[i].textures[j].attrib {
+          Attrib::Diffuse => {
+            textures[i] = self.materials[i].textures[j].texture.clone();
+          },
+          _ => {},
+        }
       }
     }
     
     textures
+  }
+  
+  pub fn get_diffuse_texture(&self, material_ref: String) -> Option<String> {
+    let mut texture: Option<String> = None;
+    
+    for i in 0..self.materials.len() {
+      if self.materials[i].material_ref == material_ref {
+        for j in 0..self.materials[i].textures.len() {
+          match self.materials[i].textures[j].attrib {
+            Attrib::Diffuse => {
+              texture = Some(self.materials[i].textures[j].texture.clone());
+            },
+            _ => {},
+          }
+        }
+      }
+    }
+    
+    texture
   }
 }
 
