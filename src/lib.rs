@@ -57,6 +57,8 @@ const INDEXARRAY: &str = "IndexArray";
 const MATERIAL: &str = "Material";
 const TEXTURE: &str = "Texture";
 
+const COLOUR: &str = "Color";
+
 fn get_float(v: Vec<&str>) -> Option<f32> {
   let mut result = None;
   
@@ -578,6 +580,34 @@ impl OpengexPaser {
               println!("{}", texture);
               materials[in_material.position].textures[in_material.second_index].texture = texture.to_string();
             }
+          },
+          COLOUR => {
+            if in_material.in_use {
+              if v[1] == ATTRIB {
+                if v[2] == EQUALS {
+                  if v[3] == DIFFUSE {
+                    let float_type = remove_brackets(v[4]);
+                    if float_type == FLOAT3 {
+                      let mut colour: [f32; 3] = [0.0,0.0,0.0];
+                      let mut idx = 0;
+                      for i in 0..(v.len()-5) {
+                        let value = remove_brackets(v[5 + i]);
+                        if let Ok(float) = value.parse::<f32>() {
+                          colour[idx] = float;
+                          idx += 1;
+                          if idx == 3 {
+                            let temp_colour = colour;
+                            materials[in_material.position].diffuse_colour = temp_colour;
+                            idx = 0;
+                            colour = [0.0, 0.0, 0.0];
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
           OPEN_BRACKET => {
             num_brackets_open += 1;
@@ -917,15 +947,15 @@ impl OpengexPaser {
     texcoords
   }
   
-  pub fn get_diffuse_textures(&self) -> Vec<String> {
-    let mut textures: Vec<String> = Vec::new();
+  pub fn get_diffuse_textures(&self) -> Vec<(String, [f32; 3])> {
+    let mut textures: Vec<(String, [f32;3])> = Vec::new();
     
     for i in 0..self.materials.len() {
-      textures.push("".to_string());
+      textures.push(("".to_string(), self.materials[i].diffuse_colour));
       for j in 0..self.materials[i].textures.len() {
         match self.materials[i].textures[j].attrib {
           Attrib::Diffuse => {
-            textures[i] = self.materials[i].textures[j].texture.clone();
+            textures[i] = (self.materials[i].textures[j].texture.clone(), self.materials[i].diffuse_colour);
           },
           _ => {},
         }
@@ -962,3 +992,4 @@ mod tests {
         assert_eq!(2 + 2, 4);
     }
 }
+
