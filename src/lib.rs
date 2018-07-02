@@ -8,7 +8,9 @@ use cgmath::Vector4;
 use cgmath::Matrix4;
 use cgmath::SquareMatrix;
 
+const X: &str = "\"x\"";
 const Y: &str = "\"y\"";
+const Z: &str = "\"z\"";
 
 const PLAINSTRING: &str = "string";
 const STRING: &str = "{string";
@@ -401,6 +403,7 @@ impl OpengexPaser {
                    if v[4] == STRING {
                      if let Some(dir) = get_string_value(vec!(v[5])) {
                        metric.up = dir.to_string();
+                       println!("{}", metric.up);
                      }
                    }
                 },
@@ -869,14 +872,37 @@ impl OpengexPaser {
           let mut transformed_vertex: Vec<[f32; 3]> = Vec::with_capacity(vertex.len());
           for k in 0..vertex.len() {
             let temp_vtx = Vector4::new(vertex[k][0], vertex[k][1], vertex[k][2], 1.0);
-            let new_vtx = transform*temp_vtx;
+            let mut vtx = transform*temp_vtx;
+            if metric.up == Z {
+              let value = vtx.y;
+              vtx.y = vtx.z;
+              vtx.z = value;
+            }
+            if metric.up == X {
+              let value = vtx.y;
+              vtx.y = vtx.x;
+              vtx.x = value;
+            }
+            let new_vtx = vtx;
             transformed_vertex.push([new_vtx.x, new_vtx.y, new_vtx.z]);
           }
           
           let mut transformed_normal: Vec<[f32; 3]> = Vec::with_capacity(normal.len());
           for k in 0..normal.len() {
             let temp_nrml = Vector4::new(normal[k][0], normal[k][1], normal[k][2], 1.0);
-            let new_nrml = transform*temp_nrml;
+            let mut nrml = transform*temp_nrml;
+            if metric.up == Z {
+              let value = nrml.y;
+              nrml.y = nrml.z;
+              nrml.z = value;
+            }
+            if metric.up == X {
+              let value = nrml.y;
+              nrml.y = nrml.x;
+              nrml.x = value;
+            }
+            
+            let new_nrml = nrml;
             transformed_normal.push([new_nrml.x, new_nrml.y, new_nrml.z]);
           }
           
