@@ -61,6 +61,37 @@ const TEXTURE: &str = "Texture";
 
 const COLOUR: &str = "Color";
 
+const ANIMATION: &str = "Animation";
+const TRACK: &str = "Track";
+const TRACK_KEY: &str = "Key";
+const TRACK_TIME: &str = "Time";
+const VALUE: &str = "Value";
+const CURVE: &str = "(curve";
+const KIND: &str = "(kind";
+const PLUSCONTROL: &str = "\"+control\")";
+const MINUSCONTROL: &str = "\"-control\")";
+const TARGET: &str = "(target";
+const XPOS: &str = "%xpos)";
+const YPOS: &str = "%ypos)";
+const ZPOS: &str = "%zpos)";
+const XROT: &str = "%xrot)";
+const YROT: &str = "%yrot)";
+const ZROT: &str = "%zrot)";
+const BEZIER: &str = "\"bezier\")";
+const LINEAR: &str = "\"linear\")";
+
+const BEGIN: &str = "(begin";
+const END: &str = "end";
+
+fn get_raw_float(v: &str) -> Option<f32> {
+  let mut result = None;
+  
+  if let Ok(float) = v.parse::<f32>() {
+    result = Some(float);
+  }
+  result
+}
+
 fn get_float(v: Vec<&str>) -> Option<f32> {
   let mut result = None;
   
@@ -99,6 +130,35 @@ pub enum Attrib {
   Diffuse,
   Normal,
   Specular,
+  Unknown,
+}
+
+#[derive(Clone)]
+pub enum Curve {
+  Linear,
+  Bezier,
+  Unknown,
+}
+
+#[derive(Clone)]
+pub enum KeyType {
+  Single,
+  Double,
+  Triple,
+  Quad,
+  Sixteen,
+  PlusControl,
+  MinusControl,
+}
+
+#[derive(Clone)]
+pub enum TargetType {
+  Xpos,
+  Ypos,
+  Zpos,
+  Xrot,
+  Yrot,
+  Zrot,
   Unknown,
 }
 
@@ -210,6 +270,7 @@ struct GeometryNode {
   object_ref: String,
   
   materialref: Vec<MaterialRef>, 
+  animation: Option<Animation>,
 }
 
 impl GeometryNode {
@@ -224,6 +285,128 @@ impl GeometryNode {
       object_ref: "".to_string(),
       
       materialref: Vec::new(),
+      animation: None,
+    }
+  }
+}
+
+struct Metric {
+  distance: f32,
+  angle: f32,
+  time: f32,
+  up: String,
+  forward: String,
+}
+
+impl Metric {
+  pub fn new() -> Metric {
+    Metric {
+      distance: 1.0,
+      angle: 1.0, 
+      time: 1.0,
+      up: Y.to_string(),
+      forward: "".to_string(),
+    }
+  }
+}
+
+#[derive(Clone)]
+struct IndexArray {
+  index: Vec<u32>,
+}
+
+#[derive(Clone)]
+struct TexCoordArray {
+  texcoord: Vec<[f32; 2]>
+}
+
+#[derive(Clone)]
+struct NormalArray {
+  normal: Vec<[f32; 3]>,
+}
+
+#[derive(Clone)]
+struct VertexArray {
+  attrib: Attrib,
+  morph_index: u32,
+  vertex: Vec<[f32; 3]>,
+}
+
+#[derive(Clone)]
+struct Animation {
+  begin: f32,
+  end: f32,
+  tracks: Vec<Track>,
+}
+
+#[derive(Clone)]
+struct Track {
+  target: TargetType,
+  time: Time,
+  value: Value
+}
+
+#[derive(Clone)]
+struct Time {
+  curve: Curve,
+  keys: Vec<Key>, // 1- 3 max
+}
+
+#[derive(Clone)]
+struct Value {
+  curve: Curve,
+  keys: Vec<Key>, // 1- 4 max
+}
+
+#[derive(Clone)]
+struct Key {
+  floats: Vec<f32>,
+  key_type: KeyType,
+}
+
+impl Animation {
+  pub fn new() -> Animation {
+    Animation {
+      begin: 0.0,
+      end: 0.0,
+      tracks: Vec::new(),
+    }
+  }
+}
+
+impl Track {
+  pub fn new() -> Track {
+    Track {
+      target: TargetType::Unknown,
+      time: Time::new(),
+      value: Value::new(),
+    }
+  }
+}
+
+impl Time {
+  pub fn new() -> Time {
+    Time {
+      curve: Curve::Unknown,
+      keys: Vec::with_capacity(3),
+    }
+  }
+}
+
+impl Value {
+  pub fn new() -> Value {
+    Value {
+      curve: Curve::Unknown,
+      keys: Vec::with_capacity(4),
+    }
+  }
+}
+
+impl Key {
+  pub fn new() -> Key {
+    Key {
+      floats: Vec::new(),
+      key_type: KeyType::Single,
     }
   }
 }
@@ -276,48 +459,6 @@ impl InDoubleIndexedNode {
   }
 }
 
-struct Metric {
-  distance: f32,
-  angle: f32,
-  time: f32,
-  up: String,
-  forward: String,
-}
-
-impl Metric {
-  pub fn new() -> Metric {
-    Metric {
-      distance: 1.0,
-      angle: 1.0, 
-      time: 1.0,
-      up: Y.to_string(),
-      forward: "".to_string(),
-    }
-  }
-}
-
-#[derive(Clone)]
-struct IndexArray {
-  index: Vec<u32>,
-}
-
-#[derive(Clone)]
-struct TexCoordArray {
-  texcoord: Vec<[f32; 2]>
-}
-
-#[derive(Clone)]
-struct NormalArray {
-  normal: Vec<[f32; 3]>,
-}
-
-#[derive(Clone)]
-struct VertexArray {
-  attrib: Attrib,
-  morph_index: u32,
-  vertex: Vec<[f32; 3]>,
-}
-
 #[derive(Clone)]
 struct FinalModel {
   vertices: VertexArray,
@@ -325,6 +466,7 @@ struct FinalModel {
   normals: NormalArray,
   texcoords: TexCoordArray,
   material_ref: String,
+  animation: Animation,
 }
 
 pub struct OpengexPaser {
@@ -348,7 +490,6 @@ impl OpengexPaser {
     let mut in_float3 = InBasicNode::new();
     let mut in_float16 = InIndexedNode::new();
     let mut in_unsigned_int3 = InBasicNode::new();
-    let mut in_values = InBasicNode::new();
     
     let mut in_geometryobject = InIndexedNode::new();
     let mut in_vertexposition = InBasicNode::new();
@@ -357,6 +498,11 @@ impl OpengexPaser {
     let mut in_index = InBasicNode::new();
     let mut in_material = InDoubleIndexedNode::new();
     let mut in_texture = InBasicNode::new();
+    
+    let mut in_animation = InIndexedNode::new();
+    let mut in_track = InIndexedNode::new();
+    let mut in_time = InIndexedNode::new();
+    let mut in_value = InIndexedNode::new();
     
     let mut num_brackets_open = 0;
     
@@ -403,7 +549,6 @@ impl OpengexPaser {
                    if v[4] == STRING {
                      if let Some(dir) = get_string_value(vec!(v[5])) {
                        metric.up = dir.to_string();
-                       println!("{}", metric.up);
                      }
                    }
                 },
@@ -564,7 +709,6 @@ impl OpengexPaser {
                   
                   materials[in_material.position].textures.push(Texture::new());
                   if v[3] == DIFFUSE {
-                    print!("Diffuse: ");
                     materials[in_material.position].textures[in_material.second_index].attrib = Attrib::Diffuse;
                   }
                   if v[3] == SPECULAR {
@@ -580,7 +724,6 @@ impl OpengexPaser {
           PLAINSTRING => {
             if in_material.in_use && in_texture.in_use {
               let texture = remove_brackets(v[1]);
-              println!("{}", texture);
               materials[in_material.position].textures[in_material.second_index].texture = texture.to_string();
             }
           },
@@ -611,7 +754,176 @@ impl OpengexPaser {
                 }
               }
             }
-          }
+          },
+          ANIMATION => {
+            if in_geometrynode.in_use {
+              in_animation.num_brackets_open = num_brackets_open;
+              in_animation.in_use = true;
+              geometry_nodes[in_geometrynode.position].animation = Some(Animation::new());
+              if let Some(ref mut animation) = geometry_nodes[in_geometrynode.position].animation {
+                if v.len() > 1 {
+                  if v[1] == BEGIN {
+                    if v[2] == EQUALS {
+                      let begin_time = get_raw_float(remove_brackets(v[3]));
+                      if let Some(time) = begin_time {
+                        animation.begin = time;
+                      }
+                      if v[3] == END {
+                        if v[4] == EQUALS {
+                          let end_time = get_raw_float(remove_brackets(v[5]));
+                          if let Some(time) = end_time {
+                            animation.end = time;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          TRACK => {
+            if in_geometrynode.in_use && in_animation.in_use {
+              in_track.num_brackets_open = num_brackets_open;
+              in_track.in_use = true;
+              in_track.position = in_animation.position;
+              if let Some(ref mut animation) = geometry_nodes[in_geometrynode.position].animation {
+                animation.tracks.push(Track::new());
+                let mut target_type = TargetType::Unknown;
+                if v[1] == TARGET {
+                  if v[2] == EQUALS {
+                    match v[3] {
+                      XPOS => {
+                        target_type = TargetType::Xpos;
+                      },
+                      YPOS => {
+                        target_type = TargetType::Ypos;
+                      },
+                      ZPOS => {
+                        target_type = TargetType::Zpos;
+                      },
+                      _ => {}
+                    }
+                    animation.tracks[in_track.position].target = target_type;
+                  }
+                }
+              }
+            }
+          },
+          TRACK_TIME => {
+            if in_geometrynode.in_use && in_animation.in_use && in_track.in_use {
+              in_time.num_brackets_open = num_brackets_open;
+              in_time.in_use = true;
+              if let Some(ref mut animation) = geometry_nodes[in_geometrynode.position].animation {
+                if v[1] == CURVE {
+                  if v[2] == EQUALS {
+                    let mut curve_type = Curve::Unknown;
+                    if v[3] == LINEAR {
+                      curve_type = Curve::Linear;
+                    }
+                    if v[3] == BEZIER {
+                      curve_type = Curve::Bezier;
+                    }
+                    animation.tracks[in_track.position].time = Time::new();
+                    animation.tracks[in_track.position].time.curve = curve_type;
+                  }
+                }
+              }
+            }
+          },
+          VALUE => {
+            if in_geometrynode.in_use && in_animation.in_use && in_track.in_use {
+              in_value.num_brackets_open = num_brackets_open;
+              in_value.in_use = true;
+              if let Some(ref mut animation) = geometry_nodes[in_geometrynode.position].animation {
+                if v[1] == CURVE {
+                  if v[2] == EQUALS {
+                    let mut curve_type = Curve::Unknown;
+                    if v[3] == LINEAR {
+                      curve_type = Curve::Linear;
+                    }
+                    if v[3] == BEZIER {
+                      curve_type = Curve::Bezier;
+                    }
+                    animation.tracks[in_track.position].value = Value::new();
+                    animation.tracks[in_track.position].value.curve = curve_type;
+                  }
+                }
+              }
+            }
+          },
+          TRACK_KEY => {
+            if in_geometrynode.in_use && in_animation.in_use && in_track.in_use {
+              if let Some(ref mut animation) = geometry_nodes[in_geometrynode.position].animation {
+                if in_time.in_use { 
+                  let mut key_type = KeyType::Single;
+                  let mut offset = 2;
+                  match v[1] {
+                    FLOAT => {
+                      key_type = KeyType::Single;
+                    },
+                    KIND => {
+                      offset = 4;
+                      if v[2] == EQUALS {
+                        match v[3] {
+                          PLUSCONTROL => {
+                            key_type = KeyType::PlusControl;
+                          },
+                          MINUSCONTROL => {
+                            key_type = KeyType::MinusControl;
+                          },
+                          _ => {}
+                        }
+                      }
+                    },
+                    _ => {}
+                  }
+                  animation.tracks[in_track.position].time.keys.push(Key::new());
+                  animation.tracks[in_track.position].time.keys[in_time.position].key_type = key_type;
+                  for i in offset..v.len() {
+                    let value = get_raw_float(remove_brackets(v[i]));
+                    if let Some(value) = value {
+                      animation.tracks[in_track.position].time.keys[in_time.position].floats.push(value);
+                    }
+                  }
+                  in_time.position += 1;
+                }
+                if in_value.in_use { 
+                  let mut key_type = KeyType::Single;
+                  let mut offset = 2;
+                  match v[1] {
+                    FLOAT => {
+                      key_type = KeyType::Single;
+                    },
+                    KIND => {
+                      offset = 4;
+                      if v[2] == EQUALS {
+                        match v[3] {
+                          PLUSCONTROL => {
+                            key_type = KeyType::PlusControl;
+                          },
+                          MINUSCONTROL => {
+                            key_type = KeyType::MinusControl;
+                          },
+                          _ => {}
+                        }
+                      }
+                    },
+                    _ => {}
+                  }
+                  animation.tracks[in_track.position].value.keys.push(Key::new());
+                  animation.tracks[in_track.position].value.keys[in_value.position].key_type = key_type;
+                  for i in offset..v.len() {
+                    let value = get_raw_float(remove_brackets(v[i]));
+                    if let Some(value) = value {
+                      animation.tracks[in_track.position].value.keys[in_value.position].floats.push(value);
+                    }
+                  }
+                  in_value.position += 1;
+                }
+              }
+            }
+          },
           OPEN_BRACKET => {
             num_brackets_open += 1;
           },
@@ -621,6 +933,7 @@ impl OpengexPaser {
               if in_geometrynode.num_brackets_open == num_brackets_open {
                 in_geometrynode.num_brackets_open = -1;
                 in_geometrynode.in_use = false;
+                in_animation.position = 0;
               }
             }
             if in_transform.in_use {
@@ -652,12 +965,6 @@ impl OpengexPaser {
               if in_unsigned_int3.num_brackets_open == num_brackets_open {
                 in_unsigned_int3.num_brackets_open = -1;
                 in_unsigned_int3.in_use = false;
-              }
-            }
-            if in_values.in_use {
-              if in_values.num_brackets_open == num_brackets_open {
-                in_values.num_brackets_open = -1;
-                in_values.in_use = false;
               }
             }
             if in_geometryobject.in_use {
@@ -701,8 +1008,36 @@ impl OpengexPaser {
             }
             if in_texture.in_use {
               if in_texture.num_brackets_open == num_brackets_open {
-                in_texcoord.num_brackets_open = -1;
-                in_texcoord.in_use = false;
+                in_texture.num_brackets_open = -1;
+                in_texture.in_use = false;
+              }
+            }
+            if in_animation.in_use {
+              if in_animation.num_brackets_open == num_brackets_open {
+                in_animation.num_brackets_open = -1;
+                in_animation.in_use = false;
+                in_animation.position += 1;
+              }
+            }
+            if in_track.in_use {
+              if in_track.num_brackets_open == num_brackets_open {
+                in_track.num_brackets_open = -1;
+                in_track.in_use = false;
+                in_track.position = 0;
+              }
+            }
+            if in_time.in_use {
+              if in_time.num_brackets_open == num_brackets_open {
+                in_time.num_brackets_open = -1;
+                in_time.in_use = false;
+                in_time.position = 0;
+              }
+            }
+            if in_value.in_use {
+              if in_value.num_brackets_open == num_brackets_open {
+                in_value.num_brackets_open = -1;
+                in_value.in_use = false;
+                in_value.position = 0;
               }
             }
           },
@@ -812,35 +1147,6 @@ impl OpengexPaser {
     } else {
       println!("Error: Model file at location {:?} does not exist!", location);
     }
-    /*
-    for i in 0..geometry_nodes.len() {
-      geometry_nodes[i].transform = Matrix4::new(
-        geometry_nodes[i].raw_transform[0], geometry_nodes[i].raw_transform[1], geometry_nodes[i].raw_transform[2], geometry_nodes[i].raw_transform[3], 
-        geometry_nodes[i].raw_transform[4], geometry_nodes[i].raw_transform[5], geometry_nodes[i].raw_transform[6], geometry_nodes[i].raw_transform[7], 
-        geometry_nodes[i].raw_transform[8], geometry_nodes[i].raw_transform[9], geometry_nodes[i].raw_transform[10], geometry_nodes[i].raw_transform[11], 
-        geometry_nodes[i].raw_transform[12], geometry_nodes[i].raw_transform[13], geometry_nodes[i].raw_transform[14], geometry_nodes[i].raw_transform[15], 
-      );
-      
-      for j in 0..geometry_nodes[i].geometry_object.vertex.len() {
-        let vertex = geometry_nodes[i].geometry_object.vertex[j];
-        let temp_vtx = Vector4::new(vertex[0], vertex[1], vertex[2], 1.0);
-        let temp_vtx = geometry_nodes[i].transform*temp_vtx;
-        
-        geometry_nodes[i].geometry_object.vertex[j][0] = temp_vtx[0];
-        geometry_nodes[i].geometry_object.vertex[j][1] = temp_vtx[1];
-        geometry_nodes[i].geometry_object.vertex[j][2] = temp_vtx[2];
-      }
-      
-      for j in 0..geometry_nodes[i].geometry_object.normal.len() {
-        let normal = geometry_nodes[i].geometry_object.normal[j];
-        let temp_nrml = Vector4::new(normal[0], normal[1], normal[2], 1.0);
-        let temp_nrml = geometry_nodes[i].transform*temp_nrml;
-        
-        geometry_nodes[i].geometry_object.normal[j][0] = temp_nrml[0];
-        geometry_nodes[i].geometry_object.normal[j][1] = temp_nrml[1];
-        geometry_nodes[i].geometry_object.normal[j][2] = temp_nrml[2];
-      }
-    }*/
     
     let mut models: Vec<FinalModel> = Vec::with_capacity(geometry_objects.len());
     
@@ -856,13 +1162,15 @@ impl OpengexPaser {
       
       for j in 0..geometry_objects.len() {
         if geometry_nodes[i].object_ref == geometry_objects[j].name {
-          models.push(FinalModel { 
+          models.push(FinalModel {
             vertices: VertexArray { vertex: Vec::new(), attrib: Attrib::Unknown, morph_index: 0 }, 
             indices: IndexArray { index: Vec::new() }, 
             normals: NormalArray { normal: Vec::new() }, 
             texcoords: TexCoordArray { texcoord: Vec::new() }, //UVArray { uv: Vec::new() },
             material_ref: "".to_string(),
+            animation: Animation::new(),
           });
+          
           
           let object = geometry_objects[j].clone();
           let vertex = object.vertex;
@@ -912,6 +1220,10 @@ impl OpengexPaser {
           models[model_index].indices = IndexArray { index: index };
           models[model_index].normals = NormalArray { normal: transformed_normal };
           models[model_index].texcoords = TexCoordArray { texcoord: tex_coord };
+          if let Some(ref animation) = geometry_nodes[i].animation {
+            models[model_index].animation = animation.clone();
+          }
+          
           for k in 0..geometry_nodes[i].materialref.len() {
             if geometry_nodes[i].materialref[k].index == 0 {
               models[model_index].material_ref = geometry_nodes[i].materialref[k].material_ref.clone();
@@ -922,6 +1234,18 @@ impl OpengexPaser {
           break;
         }
       }
+    }
+    
+    for mut node in geometry_nodes {
+      node.materialref.clear();
+      node.animation = None;
+    }
+    
+    for mut object in geometry_objects {
+      object.vertex.clear();
+      object.index.clear();
+      object.normal.clear();
+      object.texcoord.clear();
     }
     
     OpengexPaser {
